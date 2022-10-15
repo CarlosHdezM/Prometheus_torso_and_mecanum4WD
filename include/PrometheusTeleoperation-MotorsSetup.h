@@ -1,14 +1,7 @@
 #pragma once
-#include <P2pSocket.h>
+
 #include "MitMotor.h"
 #include "pin_definitions.h"
-
-constexpr float PERIOD_USEC = 1000;
-constexpr float T = PERIOD_USEC / 1000000.0;
-
-IntervalTimer myTimer;
-
-#include "MitMotor.h"
 
 
 /* Motors declaration*/
@@ -64,7 +57,7 @@ float Sign(float number)
     }
 }
 
-void controlMotors()
+void controlMotors(float elapsed_time_seconds)
 {
     if (Beta > 0.3)
     {
@@ -93,7 +86,7 @@ void controlMotors()
     for (uint8_t i = 0; i < NUM_MOTORS; i++)
     {
         Dq[i] = Fc * (theta[i] + motors[i]->position());
-        theta[i] = theta[i] - T * Dq[i];
+        theta[i] = theta[i] - elapsed_time_seconds * Dq[i];
     }
 
     for (uint8_t i = 0; i < NUM_MOTORS; i++)

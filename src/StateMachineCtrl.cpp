@@ -32,11 +32,15 @@ State current_state = State::DISCONNECTED;
 bool is_outbound_data_ready = false;
 
 
+constexpr float PERIOD_USEC = 1000;
+constexpr float T = PERIOD_USEC / 1000000.0;
+IntervalTimer myTimer;
+
 
 void periodicInterruptCallback()
 {
     //-----Torso
-    controlMotors();
+    controlMotors(T);
 
     //-----Mecanum4WD
     mecanum4WD_updateVelControl(T);
@@ -69,34 +73,43 @@ uint8_t connect()
 uint8_t validate()
 {
     //-----Torso:
-    motors[0]->setTorque(0.0);
-    motors[1]->setTorque(0.0);
-    motors[1]->setTorque(0.0);
-
-    for (auto &motor : motors) // Implement a counter to get the loop number
+    uint8_t torso_failed_motors_mask = 0x00;
+    for (uint8_t i = 0; i < NUM_MOTORS; i++)
     {
-        //ToDo: Replace the (possibly) inifinite while loop with a timeout. 
-        while (!motor->initialize())
+        //MCP2515 initialization (SPI)
+        bool was_response_received;
+        unsigned long t_ini_ms = millis();
+        while (!(was_response_received = motors[i]->initialize()) and (millis() - t_ini_ms) < 100)    //Retry during 100 ms per motor.
         {
             Debug("Retrying to initialize ");
-            Serial.print(motor->name());
+            Serial.print(motors[i]->name());
             Serial.print(" MCP2515");
         }
-        //ToDo: Replace the (possibly) inifinite while loop with a timeout. 
-        while (!motor->turnOn())
+        if(!was_response_received){
+            torso_failed_motors_mask |= (1 << i);
+        }
+        //Ensure initial torque is 0.0
+        motors[0]->setTorque(0.0,2000);
+        motors[1]->setTorque(0.0,2000);
+        motors[2]->setTorque(0.0,2000);
+        //Motor turn on (CAN)
+        if (!motors[i]->turnOn())
         {
-            Debug("Retrying to turn on ");
-            Serial.println(motor->name());
+            torso_failed_motors_mask |= (1 << i);
+            Debug("Not able to turn on ");
+            Serial.println(motors[i]->name());
         }
     }
-    Debug("All motors initialized succesfully");
 
     //-----Mecanum4WD
     ErrorMecanum4WD mecanum_status = mecanum4WD_initialize();
 
-    //ToDo: Return an appropriate StateMachineError rather than assuming TRANSITION_OK.
-
-    return (uint8_t)StateMachineError::TRANSITION_OK;
+    //Return transition result
+    StateMachineError validation_result = StateMachineError::TRANSITION_OK;
+    if(torso_failed_motors_mask != 0 or mecanum_status != ErrorMecanum4WD::ERROR_OK){
+        validation_result = StateMachineError::TRANSITION_ERROR;
+    }
+    return (uint8_t)validation_result;
 }
 
 
@@ -111,51 +124,34 @@ uint8_t calibrate()
 {
     //-----Torso
     //Set the zero position reference of the torso motors
+    uint8_t torso_failed_motors_mask = 0x00;
     for (uint8_t i = 0; i < NUM_MOTORS; i++)
     {
         Serial.print(motors[i]->name());
-        if (motors[i]->setCurrentPositionAsZero())
+        if (!motors[i]->setCurrentPositionAsZero())
         {
-            Serial.print("Position: ");
-            Serial.print(motors[i]->position(), 4);
-            Serial.print("\tTorque: ");
-            Serial.print(motors[i]->torque(), 4);
-            Serial.print("\tVelocity: ");
-            Serial.println(motors[i]->velocity(), 4);
-        }
-        else
-        {
+            torso_failed_motors_mask |= (1 << i);
             Serial.println(":\tFailed setting current position as origin");
         }
+        Serial.print("Position: ");
+        Serial.print(motors[i]->position(), 4);
+        Serial.print("\tTorque: ");
+        Serial.print(motors[i]->torque(), 4);
+        Serial.print("\tVelocity: ");
+        Serial.println(motors[i]->velocity(), 4);
     }
-    //ToDo: Check if the position of each motor is in fact zero or near to zero. 
-
 
     //-----Mecanum4WD
     //Send velocity zero to mecanum4WD robot.  
     ErrorMecanum4WD is_mecanum4WD_stopped = mecanum4WD_stopRobotBlocking(2000);
 
 
-    //-----Torso
-    //Enable torso motors auto mode. 
-    for (uint8_t i = 0; i < NUM_MOTORS; i++) // ESTO SE DEBE DE HACER UNA SOLA VEZ
-    {
-        Serial.print("Starting auto mode for:");
-        Serial.println(motors[i]->name());
-        motors[i]->startAutoMode(interrupt_handlers[i]);
+    //Return transition result
+    StateMachineError calibration_result = StateMachineError::TRANSITION_OK;
+    if(torso_failed_motors_mask != 0 or is_mecanum4WD_stopped != ErrorMecanum4WD::ERROR_OK){
+        calibration_result = StateMachineError::TRANSITION_ERROR;
     }
-
-    //-----Mecanum4WD
-    //Enable mecanum4WD motors auto mode.
-    mecanum4WD_velocity_setpoint.setVelocities(0.0, 0.0, 0.0);
-    mecanum4WD_enableMotorsAutoMode();
-
-    //-----Torso and Mecanum4WD
-    //Enable periodic interrupt.
-    myTimer.begin(periodicInterruptCallback, PERIOD_USEC);
-    myTimer.priority(200);
-
-    return (uint8_t)StateMachineError::TRANSITION_OK;
+    return (uint8_t)calibration_result;
 }
 
 
@@ -169,15 +165,29 @@ uint8_t calibrate()
  */
 uint8_t gotohome()
 {
-    //System's periodic interrupt (that updates Torso and Mecanum4wd control law) was enabled in calibrate() and should be still active.
-    //Set control law setpoint.
-
     //-----Torso
+    //Setpoints set to home (0.0f)
     Beta = 0.0;
     Gamma = 0.0;
-        
+    //Enable torso motors auto mode. 
+    for (uint8_t i = 0; i < NUM_MOTORS; i++)
+    {
+        Serial.print("Starting auto mode for:");
+        Serial.println(motors[i]->name());
+        motors[i]->startAutoMode(interrupt_handlers[i]);
+    }
+
     //-----Mecanum4WD
+    //Setpoints set to home (0.0f)
     mecanum4WD_velocity_setpoint.setVelocities(0.0, 0.0, 0.0);
+    //Enable mecanum4WD motors auto mode.
+    mecanum4WD_velocity_setpoint.setVelocities(0.0, 0.0, 0.0);
+    mecanum4WD_enableMotorsAutoMode();
+
+    //-----Torso and Mecanum4WD
+    //Enable periodic interrupt.
+    myTimer.begin(periodicInterruptCallback, PERIOD_USEC);
+    myTimer.priority(200);
 
     return (uint8_t)StateMachineError::TRANSITION_OK;
 }
@@ -213,10 +223,10 @@ uint8_t disengage()
     //Set control law setpoint.
 
     //-----Torso
-    Beta = 0.0;
-    Gamma = 0.0;
+    //The torso must keep its last setpoints in disengage (pause).
 
     //-----Mecanum4WD
+    //Mecanum4wd must stop in disengage. 
     mecanum4WD_velocity_setpoint.setVelocities(0.0, 0.0, 0.0);
     return (uint8_t)StateMachineError::TRANSITION_OK;
 }
@@ -251,6 +261,10 @@ uint8_t gobacktohome()
  */
 uint8_t disconnect()
 {
+    //-----Torso and Mecanum4WD
+    //Disable periodic interrupt.
+    myTimer.end();
+
     //-----Torso
     Debug("\nDisabling Motor");
     for (uint8_t i = 0; i < NUM_MOTORS; i++)
@@ -269,10 +283,6 @@ uint8_t disconnect()
 
     //-----Mecanum4WD
     mecanum4WD_turnOff();
-
-    //-----Torso and Mecanum4WD
-    //Disable periodic interrupt.
-    myTimer.end();
 
     return (uint8_t)StateMachineError::TRANSITION_OK;
 }

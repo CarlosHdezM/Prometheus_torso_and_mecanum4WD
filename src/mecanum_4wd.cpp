@@ -80,47 +80,51 @@ inline ErrorMecanum4WD& operator &=(ErrorMecanum4WD& a, ErrorMecanum4WD b)
 
 ErrorMecanum4WD mecanum4WD_turnOn()
 {
-    ErrorMecanum4WD all_succeeded = ErrorMecanum4WD::ERROR_OK;
+    ErrorMecanum4WD error_status = ErrorMecanum4WD::ERROR_OK;
     for (uint8_t i = 0; i < NUM_WHEELS; i++)
     {
         if (wheel_motors[i]->turnOn() ) {
             Serial.print("Turned on "); Serial.println(wheel_motors[i]->name());
         }
         else {
-            all_succeeded |= (1 << i);
+            error_status |= (1 << i);
             Serial.print("Failed turning on "); Serial.println(wheel_motors[i]->name());
         }
     }   
-    return all_succeeded;
+    return error_status;
 }
 
 
 
 ErrorMecanum4WD mecanum4WD_turnOff()
 {
-    ErrorMecanum4WD all_succeeded = ErrorMecanum4WD::ERROR_OK;
+    ErrorMecanum4WD error_status = ErrorMecanum4WD::ERROR_OK;
     for (uint8_t i = 0; i < NUM_WHEELS; i++)
     {
         if (wheel_motors[i]->turnOff() ) {
             Serial.print("Turned off "); Serial.println(wheel_motors[i]->name());
         }
         else {
-            all_succeeded |= (1 << i);
+            error_status |= (1 << i);
             Serial.print("Failed turning off "); Serial.println(wheel_motors[i]->name());
         }
     } 
-    return all_succeeded;
+    return error_status;
 }
 
 
 
 ErrorMecanum4WD mecanum4WD_initialize()
 {
-    ErrorMecanum4WD all_succeeded = ErrorMecanum4WD::ERROR_OK;
+    ErrorMecanum4WD error_status = ErrorMecanum4WD::ERROR_OK;
     for (uint8_t i = 0; i < NUM_WHEELS; i++) 
     {
-        if(!wheel_motors[i]->initialize()){
-            all_succeeded |= ErrorMecanum4WD::ERROR_MCP2515;
+        //MCP2515 initialization (SPI)
+        bool was_response_received;
+        unsigned long t_ini_ms = millis();
+        while (!(was_response_received = wheel_motors[i]->initialize()) and (millis() - t_ini_ms) < 100){}    //Retry during 100 ms per motor.
+        if(!was_response_received){
+            error_status |= ErrorMecanum4WD::ERROR_MCP2515;
             Serial.print("Unable to initialize "); Serial.print(wheel_motors[i]->name()); Serial.print(" MCP2515");
         }
         else {
@@ -131,14 +135,14 @@ ErrorMecanum4WD mecanum4WD_initialize()
     {
         if(!wheel_motors[i]->turnOn())
         {
-            all_succeeded |= (1 << i);
+            error_status |= (1 << i);
             Serial.print("Unable to turn on "); Serial.println(wheel_motors[i]->name());
         }
         else {
             Serial.print("Successfully turned on: "); Serial.println(wheel_motors[i]->name());
         }
     }
-    return all_succeeded;
+    return error_status;
 }
 
 
