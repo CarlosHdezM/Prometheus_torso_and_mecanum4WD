@@ -8,6 +8,11 @@
 #define lx 0.3092f  //309.2 mm
 #define ly 0.225f   //225 mm
 
+//Limits (Limit the max or min speed)
+#define LIMIT_VELOCITY_SETPOINT_LINEAR_X 2.0f
+#define LIMIT_VELOCITY_SETPOINT_LINEAR_Y 2.0f
+#define LIMIT_VELOCITY_SETPOINT_ANGULAR_Z 2.0f
+
 
 float wheels_angular_velocity_setpoint[NUM_WHEELS]{0.0, 0.0, 0.0, 0.0};
 float wheels_angular_velocity_output[NUM_WHEELS]{0.0, 0.0, 0.0, 0.0};
@@ -48,6 +53,13 @@ void mecanum4WD_updateInverseKinematics();
 
 
 //----------------------------------------------------------------------Function definitions-------------------------------------------------------------------------
+
+
+void SimpleCmdVel::setVelocities(float _linear_x, float _linear_y, float _angular_z){
+        linear_x = constrain(_linear_x,   -LIMIT_VELOCITY_SETPOINT_LINEAR_X,  LIMIT_VELOCITY_SETPOINT_LINEAR_X);
+        linear_y = constrain(_linear_y,   -LIMIT_VELOCITY_SETPOINT_LINEAR_Y,  LIMIT_VELOCITY_SETPOINT_LINEAR_Y);
+        angular_z = constrain(_angular_z, -LIMIT_VELOCITY_SETPOINT_ANGULAR_Z, LIMIT_VELOCITY_SETPOINT_ANGULAR_Z);
+}
 
 
 //Operator overloads to be able to set bits in ErrorMecanum4WD enums.
@@ -162,9 +174,6 @@ ErrorMecanum4WD mecanum4WD_stopRobotBlocking(unsigned long timeout_ms)
     unsigned long t_ini_ms = millis();
     while(is_robot_moving and ((millis() - t_ini_ms) < timeout_ms) )
     {
-        is_robot_moving = (fabs(mecanum4WD_velocity_read.linear_x) > 0.05 
-                        or fabs(mecanum4WD_velocity_read.linear_y) > 0.05 
-                        or fabs(mecanum4WD_velocity_read.angular_z) > 0.05 );
         //Send velocity zero to each motor. 
         for (uint8_t i = 0; i < NUM_WHEELS; i++) {
             if (!wheel_motors[i]->setVelocity(0.0, 3.0)){
@@ -178,6 +187,10 @@ ErrorMecanum4WD mecanum4WD_stopRobotBlocking(unsigned long timeout_ms)
         }
         //Update robot velocities (linear x, linear y, angular z)
         mecanum4WD_updateInverseKinematics();
+        //From inverse kinematics result, determine if the robot is stopped. 
+        is_robot_moving = (fabs(mecanum4WD_velocity_read.linear_x) > 0.05 
+                        or fabs(mecanum4WD_velocity_read.linear_y) > 0.05 
+                        or fabs(mecanum4WD_velocity_read.angular_z) > 0.05 );
     }
     if (is_robot_moving) error_status |= ErrorMecanum4WD::ERROR_GOAL_NOT_ACHIEVED;
     return error_status;
@@ -210,9 +223,21 @@ void mecanum4WD_disableMotorsAutoMode()
 
 void mecanum4WD_updateVelControl(float elapsed_time_seconds)
 {
-    digitalWrite(AUX_PIN_1,!digitalRead(AUX_PIN_1));
+    //digitalWrite(AUX_PIN_1,!digitalRead(AUX_PIN_1));  //Toggle pin to analize periodicity with the logic analyzer.
+    
+    //Constrain mecanum4wd velocity setpoints to reasonable limits. (Built-in constrain() function doesn't work since the setpoint is std::atomic<float>)
+    //Most likely redudant, but since SimpleCmdVel members can be assigned directly, we must be sure the setpoints are within the limits. 
+    if (mecanum4WD_velocity_setpoint.linear_x > LIMIT_VELOCITY_SETPOINT_LINEAR_X) mecanum4WD_velocity_setpoint.linear_x = LIMIT_VELOCITY_SETPOINT_LINEAR_X;
+    else if (mecanum4WD_velocity_setpoint.linear_x < -LIMIT_VELOCITY_SETPOINT_LINEAR_X) mecanum4WD_velocity_setpoint.linear_x = -LIMIT_VELOCITY_SETPOINT_LINEAR_X;
 
-    //Kinematic Model
+    if (mecanum4WD_velocity_setpoint.linear_y > LIMIT_VELOCITY_SETPOINT_LINEAR_Y) mecanum4WD_velocity_setpoint.linear_y = LIMIT_VELOCITY_SETPOINT_LINEAR_Y;
+    else if (mecanum4WD_velocity_setpoint.linear_y < -LIMIT_VELOCITY_SETPOINT_LINEAR_Y) mecanum4WD_velocity_setpoint.linear_y = -LIMIT_VELOCITY_SETPOINT_LINEAR_Y;
+
+    if (mecanum4WD_velocity_setpoint.angular_z > LIMIT_VELOCITY_SETPOINT_ANGULAR_Z) mecanum4WD_velocity_setpoint.angular_z = LIMIT_VELOCITY_SETPOINT_ANGULAR_Z;
+    else if (mecanum4WD_velocity_setpoint.angular_z < -LIMIT_VELOCITY_SETPOINT_ANGULAR_Z) mecanum4WD_velocity_setpoint.angular_z = -LIMIT_VELOCITY_SETPOINT_ANGULAR_Z;
+
+
+    //Kinematic Model (Compute the desired individual wheels angular velocity from the mecanum4wd desired velocity)
     wheels_angular_velocity_setpoint[0] = (1 / WHEEL_RADIUS) * (mecanum4WD_velocity_setpoint.linear_x - mecanum4WD_velocity_setpoint.linear_y - (lx + ly) * mecanum4WD_velocity_setpoint.angular_z);
     wheels_angular_velocity_setpoint[1] = (1 / WHEEL_RADIUS) * (mecanum4WD_velocity_setpoint.linear_x + mecanum4WD_velocity_setpoint.linear_y + (lx + ly) * mecanum4WD_velocity_setpoint.angular_z);
     wheels_angular_velocity_setpoint[2] = (1 / WHEEL_RADIUS) * (mecanum4WD_velocity_setpoint.linear_x + mecanum4WD_velocity_setpoint.linear_y - (lx + ly) * mecanum4WD_velocity_setpoint.angular_z);

@@ -13,53 +13,27 @@
 #include <tuple>
 #include "StateMachine.h"
 
-//Messaging objects
-#ifdef AVTR_NECK
-P2pSocket<headsetOptrPayload,     neckAvtrPayload>        p2pComm(neckAvtrMcuEpConfig); // marteaga: you MUST tell the linker that these types are allowed to be instantiated in the class
-#elif OPTR_LEFT_EXO
-P2pSocket<armAvtrPayload,         exoOptrPayload>         p2pComm(leftExoOptrMcuEpConfig); // exo MCU
-#elif AVTR_LEFT_ARM
-P2pSocket<exoOptrPayload,         armAvtrPayload>         p2pComm(leftArmAvtrMcuEpConfig); // arm MCU
-#elif OPTR_RIGHT_EXO
-P2pSocket<armAvtrPayload,         exoOptrPayload>         p2pComm(rightExoOptrMcuEpConfig);
-#elif AVTR_RIGHT_ARM
-P2pSocket<exoOptrPayload,         armAvtrPayload>         p2pComm(rightArmAvtrMcuEpConfig);
-#elif OPTR_LEFT_3DOF_GLOVE
-P2pSocket<hand3DofAvtrPayload,    glove3DofOptrPayload>   p2pComm(left3DoFGloveMcuEpConfig);
-#elif AVTR_LEFT_HAND
-P2pSocket<glove3DofOptrPayload,   hand3DofAvtrPayload>    p2pComm(leftHandMcuEpConfig);
-#elif OPTR_RIGHT_R5F_GLOVE
-P2pSocket<hand5fAvtrPayload,      glove5fOptrPayload>     p2pComm(right5FGloveMcuEpConfig);
-#elif AVTR_RIGHT_HAND
-P2pSocket<glove5fOptrPayload,     hand5fAvtrPayload>      p2pComm(rightHandMcuEpConfig);
-#elif OPTR_TOUCH_SENSE
-P2pSocket<touchSenseAvtrPayload,  touchSenseOptrPayload>  p2pComm(optrTouchSenseMcuEpConfig);
-#elif AVTR_TOUCH_SENSE
-P2pSocket<touchSenseOptrPayload,  touchSenseAvtrPayload>  p2pComm(avtrTouchSenseMcuEpConfig);
-#elif OPTR_PEDALIMU
-P2pSocket<txOmniwheelsPayload,    rxOmniwheelsPayload>    p2pComm(optrPedalImuMcuEpConfig);
-#elif AVTR_OMNIWHEELS
-P2pSocket<rxOmniwheelsPayload,    txOmniwheelsPayload>    p2pComm(avtrOmniwheelsMcuEpConfig);
-#elif AVTR_OMNIWHEELS_BKUP
-P2pSocket<rxOmniwheelsPayload,    txOmniwheelsPayload>    p2pComm(avtrOmniwheelsBkupMcuEpConfig);
-#elif OPTR_TEST
-P2pSocket<testAvtrPayload,        testOptrPayload>        p2pComm(operatorsideTestConfig);
-#elif AVTR_TEST
-P2pSocket<testOptrPayload,        testAvtrPayload>        p2pComm(avatarsideTestConfig);
-#elif ASIDE_PAUL_TEST
-P2pSocket<testAvtrPayload,        testOptrPayload>        p2pComm(aSidePaulTestConfig);
-#elif BSIDE_PAUL_TEST
-P2pSocket<testAvtrPayload,        testOptrPayload>        p2pComm(bSidePaulTestConfig);
-#else
-P2pSocket<testAvtrPayload,        testOptrPayload>        p2pComm(operatorsideTestConfig);
+#define A_THOUSAND 1000
+
+// Messaging object instantiation
+#if defined(AVATAR_SIDE) && !defined(OPERATOR_SIDE)
+P2pSocket<optrPayload,avtrPayload> p2pComm(endpointConfiguration);
+#elif defined(OPERATOR_SIDE) && !defined(AVATAR_SIDE)
+P2pSocket<avtrPayload,optrPayload> p2pComm(endpointConfiguration);
 #endif
 
+/**
+ * @brief This global variable is meant to save the current state.
+ * 
+ */
+State current_state = State::DISCONNECTED;
+bool is_outbound_data_ready = false;
 
 void setup()
 {
   // Open serial communications and wait for port to open.
   #ifdef DEBUG_LOG
-    Serial.begin(9600);
+    Serial.begin(115200);
     while (!Serial) {
       ; // wait for serial port to connect. Needed for native USB port only.
     }
@@ -67,12 +41,29 @@ void setup()
   p2pComm.begin(); // Ethernet start; the cofiguration come from the McuConfig object.
 }
 
-
+/**
+ * @brief MCU loop. Implements the state machine input.
+ * 
+ */
 void loop()
 {
-  static UdpError error       = UdpError::UNKNOWN;
-  static Command command      = Command::UNKNOWN;
-  //p2pComm._txDatagram.updateCrc();
+  static UdpError   error = UdpError::UNKNOWN;
+  static Command  command = Command::UNKNOWN;
+
+  #ifdef USE_COOPERATIVE_MULTITASKING
+  #ifdef ARDUINO_TEENSY41
+  static elapsedMicros ctrlLoopElapsedMicroseconds;
+  #elif ARDUINO_ESP32_DEV
+  static uint32_t last_time = 0;
+  static uint32_t now = 0;
+  #endif
+  #endif
+
+  #if defined(ENABLE_STRESST) && defined(ARDUINO_TEENSY41)
+  static elapsedMicros stressLoopElapsedMs;
+  #endif
+
+  // static uint32_t consecutive_timing_fails = 0;
 
   /* 1. Check if a new datagram is available. */
   std::tie(error, command) = p2pComm.receiveDatagram();
@@ -83,229 +74,328 @@ void loop()
   /* 2. A new UDP message has been received & validated. Execute command then. */
     switch (command)
     {
-
-    case Command::ACK:
     /* 3. For every command, evaluate whether you can excute it based on the current state. */
+    case Command::ENQ:
       switch (current_state)
       {
-        case State::DISCONNECTED:
-          static uint64_t outgoing_counter = 0; //counter to limit the amount of output to the serial
-          // fill the payload with printable chars
-          for(unsigned int i = 0; i < sizeof(p2pComm._txDatagram.payload); i++)
-          {
-            p2pComm.getTxPayloadBuffer()[i] = byte(' '+((outgoing_counter+i)%95));
-          }
-          p2pComm._txDatagram.returnCode = (uint8_t)outgoing_counter++; // assign the variable and increment 
-          // p2pComm._txDatagram.timecode.m_hours    = 0x40;
-          // p2pComm._txDatagram.timecode.m_minutes  = 0x41;
-          // p2pComm._txDatagram.timecode.m_seconds  = 0x42;
-          // p2pComm._txDatagram.timecode.m_frame    = 0x4443;
-          //p2pComm._txDatagram.updateCrc(); // update CRC last; is it updated right before sending every packet
-          p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
+      case State::DISCONNECTED:
+        static uint64_t cntr = 0;
+        // fill out the payload space with printable chars
+        for(unsigned int i = 0; i < sizeof(p2pComm._txDatagram.payload); i++)
+        {
+          p2pComm.getTxPayloadBuffer()[i] = byte(' '+((cntr+i)%95));
+        }
+        p2pComm._txDatagram.returnCode = (uint8_t)++cntr; // increment and assign the var
+        p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
         break;
-        default:
-          #ifdef DEBUG_LOG
-          Debug("Estado actual inválido para atender este comando: ");
-          Serial.printf("<0x%02,0x%02,0x%02>",error,command,current_state);
-          #endif
+
+      default:
+	  	#ifdef DEBUG_LOG
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
+        #endif
+        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::CURRENTSTATE_INVALID;
         break;
       }
-    break;
+      break;
+
+
+    case Command::SM_STRESST:
+      switch (current_state)
+      {
+      case State::DISCONNECTED:
+        /* Run stress test only when DISCONNECTED. */
+        Debugln("DISCONNECTED->STRESSTING");
+        p2pComm._txDatagram.returnCode = stress();
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::STRESSTING;
+          #if defined(ENABLE_STRESST) && defined(ARDUINO_TEENSY41)
+            stressLoopElapsedMs = 0;
+          #endif
+          // p2pComm._txDatagram.timestamp = 0;
+          // p2pComm._lastReceivedTimestamp = 0;
+          Debugln("Command::SM_STRESST success.");
+        }
+        else
+        {
+          Debug("Command::SM_STRESST fail: 0x");
+          DebugPln(p2pComm._txDatagram.returnCode, HEX);
+        }
+        break;
+      
+      default:
+        #ifdef DEBUG_LOG
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
+        #endif
+		p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
+        break;
+      }
+      p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
+      break;
 
 
     case Command::SM_CONNECT:
       switch (current_state)
       {
       case State::DISCONNECTED:
-        Debugln("Try DISCONNECTED->CONNECTED");
+        Debugln("DISCONNECTED->CONNECTED");
         p2pComm._txDatagram.returnCode = connect();
-        current_state = p2pComm._txDatagram.returnCode == 0 ? State::CONNECTED : State::DISCONNECTED;
-      break;
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::CONNECTED;
+          Debugln("Command::SM_CONNECT success.");
+        }
+        else
+          Debugln("Command::SM_COMMAND fail.");
+        break;
 
       case State::CONNECTED:
         Debugln("Already CONNECTED.");
-        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONE;
-      break;
+        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONEALREADY;
+        break;
 
       default:
         #ifdef DEBUG_LOG
-        Serial.printf("Invalid current state 0x%02X for received command 0x%02X.\n", current_state, command);
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
         #endif
         p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
-      break;
+        break;
       }
       p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
-    break;
+      break;
 
 
     case Command::SM_VALIDATE:
       switch (current_state)
       {
       case State::CONNECTED:
-        Debugln("Try CONNECTED->VALIDATED");
+        Debugln("CONNECTED->VALIDATED");
         p2pComm._txDatagram.returnCode = validate();
-        current_state = p2pComm._txDatagram.returnCode == 0 ? State::VALIDATED : State::CONNECTED;
-      break;
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::VALIDATED;
+          Debugln("Command::SM_VALIDATE success.");
+        }
+        else
+          Debugln("Command::SM_VALIDATE fail.");
+        break;
       
       case State::VALIDATED:
         Debugln("Already VALIDATED");
-        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONE;
-      break;
+        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONEALREADY;
+        break;
       
       default:
         #ifdef DEBUG_LOG
-        Serial.printf("Invalid current state 0x%02X for received command 0x%02X.\n", current_state, command);
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
         #endif
         p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
-      break;
+        break;
       }
       p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
-    break;
+      break;
 
 
     case Command::SM_CALIBRATE:
       switch (current_state)
       {
       case State::VALIDATED:
-        Debugln("Try VALIDATED->CALIBRATED");
+        Debugln("VALIDATED->CALIBRATED");
         p2pComm._txDatagram.returnCode = calibrate();
-        current_state = p2pComm._txDatagram.returnCode == 0 ? State::CALIBRATED : State::VALIDATED;
-      break;
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::CALIBRATED;
+          Debugln("Command::SM_CALIBRATE success.");
+        }
+        else
+          Debugln("Command::SM_CALIBRATE fail.");
+        break;
+
       case State::CALIBRATED:
         Debugln("Already CALIBRATED");
-        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONE;
-      break;
+        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONEALREADY;
+        break;
+
       default:
         #ifdef DEBUG_LOG
-        Serial.printf("Invalid current state 0x%02X for received command 0x%02X.\n", current_state, command);
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
         #endif
         p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
-      break;
+        break;
       }
       p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
-    break;
+      break;
 
 
     case Command::SM_GOTOHOME:
       switch (current_state)
       {
       case State::CALIBRATED:
-        Debugln("Try CALIBRATED->HOME");
+        Debugln("CALIBRATED->HOME");
         p2pComm._txDatagram.returnCode = gotohome();
-        current_state = p2pComm._txDatagram.returnCode == 0 ? State::HOME : State::CALIBRATED;
-      break;
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::HOME;
+          Debugln("Command::SM_HOME success.");
+        }
+        else
+          Debugln("Command::SM_HOME fail.");
+        break;
+
       case State::DISENGAGED:
-        Debugln("Try DISENGAGED->HOME");
+        Debugln("DISENGAGED->HOME");
         p2pComm._txDatagram.returnCode = gobacktohome();
-        current_state = p2pComm._txDatagram.returnCode == 0 ? State::HOME : State::DISENGAGED;
-      break;
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::HOME;
+          Debugln("Command::SM_HOME success.");
+        }
+        else
+          Debugln("Command::SM_HOME fail.");
+        break;
+
       case State::HOME:
         Debugln("Already at HOME");
-        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONE;
-      break;
+        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONEALREADY;
+        break;
+
       default:
         #ifdef DEBUG_LOG
-        Serial.printf("Invalid current state 0x%02X for received command 0x%02X.\n", current_state, command);
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
         #endif
         p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
-      break;
+        break;
       }
       p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
-    break;
+      break;
 
 
     case Command::SM_ENGAGE:
       switch (current_state)
       {
       case State::HOME:
-        Debugln("Try HOME->ENGAGED");
+        Debugln("HOME->ENGAGED");
         p2pComm._txDatagram.returnCode = engage();
-        current_state = p2pComm._txDatagram.returnCode == 0 ? State::ENGAGED : State::HOME;
-      break;
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::ENGAGED;
+          #ifdef USE_COOPERATIVE_MULTITASKING
+          #ifdef ARDUINO_TEENSY41
+            ctrlLoopElapsedMicroseconds = 0;
+          #elif ARDUINO_ESP32_DEV
+            last_time = micros();
+          #endif
+          #endif
+          // p2pComm._txDatagram.timestamp = 0;
+          // p2pComm._lastReceivedTimestamp = 0;
+          Debugln("Command::SM_ENGAGE success.");
+        }
+        else
+          Debugln("Command::SM_ENGAGE fail.");
+        break;
+
       case State::ENGAGED:
         Debugln("Already ENGAGED");
-        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONE;
-      break;
+        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONEALREADY;
+        break;
+
       default:
         #ifdef DEBUG_LOG
-        Serial.printf("Invalid current state 0x%02X for received command 0x%02X.\n", current_state, command);
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
         #endif
         p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
-      break;
+        break;
       }
       p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
-    break;
+      break;
 
 
     case Command::SM_DISENGAGE:
       switch (current_state)
       {
       case State::ENGAGED:
-        Debugln("Try ENGAGED->DISENGAGED");
+        Debugln("ENGAGED->DISENGAGED");
         p2pComm._txDatagram.returnCode = disengage();
-        current_state = p2pComm._txDatagram.returnCode == 0 ? State::DISENGAGED : State::ENGAGED;
-      break;
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::DISENGAGED;
+          Debugln("Command::SM_DISENGAGE success.");
+        }
+        else
+          Debugln("Command::SM_DISENGAGE fail.");
+        break;
+
       case State::DISENGAGED:
-        Debugln("Already on DISENGAGED");
-        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONE;
-      break;
+        Debugln("Already DISENGAGED");
+        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONEALREADY;
+        break;
+
       default:
         #ifdef DEBUG_LOG
-        Serial.printf("Invalid current state 0x%02X for received command 0x%02X.\n", current_state, command);
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
         #endif
         p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
-      break;
+        break;
       }
       p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
-    break;
+      break;
 
 
     case Command::SM_DISCONNECT:
       switch (current_state)
       {
       case State::HOME:
-        Debugln("Try HOME->DISCONNECTED");
+        Debugln("HOME->DISCONNECTED");
         p2pComm._txDatagram.returnCode = disconnect();
-        current_state = p2pComm._txDatagram.returnCode == 0 ? State::DISCONNECTED : State::HOME;
-      break;
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::DISCONNECTED;
+          Debugln("Command::SM_DISCONNECT success.");
+        }
+        else
+          Debugln("Command::SM_DISCONNECT fail.");
+        break;
+
       case State::DISCONNECTED:
-        Debugln("Already on DISCONNECTED");
-        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONE;
-      break;
-      // case State::ENGAGED:
-      //   Debugln("Try ENGAGED->DISCONNECTED");
-      //   p2pComm._txDatagram.returnCode = disconnect();
-      //   current_state = State::DISCONNECTED;
-      // break;
+        Debugln("Already DISCONNECTED");
+        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_DONEALREADY;
+        break;
+
       default:
         #ifdef DEBUG_LOG
-        Serial.printf("Invalid current state 0x%02X for received command 0x%02X.\n", current_state, command);
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
         #endif
         p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
-      break;
+        break;
       }
       p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
-    break;
+      break;
 
 
     case Command::SM_POWEROFF:
       switch (current_state)
       {
       case State::DISCONNECTED:
-        Debugln("Try DISCONNECTED->POWEREDOFF");
+        Debugln("DISCONNECTED->POWEREDOFF");
         p2pComm._txDatagram.returnCode = poweroff();
-        current_state = p2pComm._txDatagram.returnCode == 0 ? State::POWEREDOFF : State::DISCONNECTED;
+        if(p2pComm._txDatagram.returnCode == 0)
+        {
+          current_state = State::POWEREDOFF;
+          Debugln("Command::SM_POWEROFF success.");
+        }
+        else
+          Debugln("Command::SM_POWEROFF fail.");
         break;
       
       default:
         #ifdef DEBUG_LOG
-        Serial.printf("Invalid current state 0x%02X for received command 0x%02X.\n", current_state, command);
+        Serial.printf("WARN: Command 0x%02X invalid for current state 0x%02X.\n", command, current_state);
         #endif
         p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
         break;
       } 
       p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
-    break;
+      break;
 
 
     case Command::TO_RECEIVEDATA:
@@ -313,39 +403,80 @@ void loop()
       switch (current_state)
       {
       case State::ENGAGED:
-        // Debugln("Teleoperation data update.");
-        updateIncomingData();
-      break;
+      case State::STRESSTING:
+        if (p2pComm.validateTimestamp(p2pComm._rxDatagram.timestamp) == UdpError::TIMESTAMP_OK)
+        {
+          // Debugln("Process incoming teleoperation data.");
+          // consecutive_timing_fails = 0;
+          updateIncomingData();
+        }
+        #ifndef DISABLE_TIMESTAMP 
+        // else if (p2pComm.m_gapClosingCount > A_THOUSAND) // implossible!! twos complement doesn't work this way.
+        // //if (p2pComm.validateTimestamp(p2pComm._rxDatagram.timestamp) == UdpError::TIMESTAMP_FAIL)
+        // {
+        //   // p2pComm._txDatagram.returnCode = (uint8_t)UdpError::TIMESTAMP_FAIL;
+        //   // consecutive_timing_fails++;
+        //   // resync
+        //   p2pComm._lastReceivedTimestamp = p2pComm._rxDatagram.timestamp;
+        //   Debugln("LOG: p2pComm._lastReceivedTimestamp REWINDED to p2pComm._rxDatagram.timestamp");  // <- this means our peer is way behind, possibly due to a reset, so we go back and match its timestamp.
+        // }
+        else if (p2pComm.m_gapWideningCount > A_THOUSAND)
+        {
+          //resync
+          p2pComm._lastReceivedTimestamp = p2pComm._rxDatagram.timestamp;
+          Debugln("LOG: p2pComm._lastReceivedTimestamp SET to p2pComm._rxDatagram.timestamp"); // <- this means we're not being able to close the gap, so we simply close it to the received timestamp.
+        }
+        #endif
+        break;
+
       default:
         #ifdef DEBUG_LOG
-        //Serial.printf("Invalid current state 0x%02X for received command 0x%02X.\n", current_state, command);
+        //Serial.printf("Not engaged. Incoming teleoperation data discarded. State 0x%02X invalid to receive command 0x%02X.\n", current_state, command);
         #endif
-        p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_INVALID;
-      break;
+        // p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::CURRENTSTATE_INVALID; // don't send shit!
+        // p2pComm.sendDatagram(MessageType::EXCEPTION);
+        break;
       }
-    break;
+      break;
+
+
+    case Command::SM_ABORT:
+      Debugln("XXXXXXXX->DISCONNECT");
+      p2pComm._txDatagram.returnCode = bail();
+      if(p2pComm._txDatagram.returnCode == 0)
+      {
+        current_state = State::DISCONNECTED;
+        Debugln("Command::SM_ABORT success.");
+      }
+      else
+        Debugln("Command::SM_ABORT fail.");
+      p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
+      break;
+
 
     default:
     /* 3.2 ToDo: handle unknown command. */
-    break;
+      Debugln("You're not yet handling this command. Tell the coder he or she or xe/xhe or \"it\" to finish effin' the job.");
+      p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_ERROR;
+      p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
+      break;
     }
   break;
 
 
   case UdpError::NO_PACKET:
   /* 2.1 No new UDP; do something here? Yes! Maybe. Maybe, check here if we have output data to be sent... */
-  break;
+    break;
 
   default:
   /* 2.3 ToDo: Handle UDP error. In the meantime, just print the specific error.  */
+    p2pComm._rxDatagram.command = (uint8_t)command;
+    p2pComm._rxDatagram.returnCode = (uint8_t)error;
     #ifdef DEBUG_LOG
       Serial.printf("<UdpError::0x%02X>\n",error);
     #endif
-    p2pComm._rxDatagram.command = (uint8_t)command;
-    p2pComm._rxDatagram.returnCode = (uint8_t)error;
-    //p2pComm._txDatagram.updateCrc(); // update CRC last
-    p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK);
-  break;
+    // p2pComm.sendDatagram(MessageType::STATEMACHINE_ACK); // buggy! Sending an ACK to the peer when receiving 0x40, with 0x40 in the reply command, introduces timestamp synchronization problems.
+    break;
   }
 
 
@@ -353,24 +484,56 @@ void loop()
   /* 4. Now, based on current state, do something additional? */
   switch (current_state)
   {
-  // ... or maybe here, everytime the loop ends, check if ENGAGED and send ouput data if ready to go.
-  case State::ENGAGED:
-  /* 4.1 Send new output data if it's ready to go. */
+  case State::STRESSTING:
+    #if defined(ENABLE_STRESST) && defined(ARDUINO_TEENSY41)
+    if (stressLoopElapsedMs >= DOSOMETHING_PERIOD_US)
+    {
+      /* call stress looped function */
+      stressLoopElapsedMs -= DOSOMETHING_PERIOD_US;
+      p2pComm._txDatagram.returnCode = do_something();
+    }
+    #endif
     if (is_outbound_data_ready)  // flag set by the interrupt
     {
       updateOutgoingData();
       p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_OK;
       p2pComm.sendDatagram(MessageType::TELEOPERATION_DATA);
     }
-    
-    // send new positions to peer.
-  break;
+    break;
+
+  /* 4.1 Send new output data if it's ready to go. */
+  case State::ENGAGED:
+    // #ifdef USE_INTERRUPTS
+    #ifdef USE_COOPERATIVE_MULTITASKING
+    #ifdef ARDUINO_TEENSY41
+    if (ctrlLoopElapsedMicroseconds >= CTRL_LOOP_PERIOD_US)
+    {
+      /* call ctrl loop function */
+      ctrlLoopElapsedMicroseconds -= CTRL_LOOP_PERIOD_US;
+      p2pComm._txDatagram.returnCode = my_control_law();
+    }
+    #elif ARDUINO_ESP32_DEV
+    now = micros();
+    if (now - last_time >= CTRL_LOOP_PERIOD_US)
+    {
+      last_time = now;
+      p2pComm._txDatagram.returnCode = my_control_law();
+    }
+    #endif
+    #endif
+    if (is_outbound_data_ready)  // flag set by the interrupt
+    {
+      updateOutgoingData();
+      p2pComm._txDatagram.returnCode = (uint8_t)StateMachineError::TRANSITION_OK;
+      p2pComm.sendDatagram(MessageType::TELEOPERATION_DATA);
+    }
+    break;
   
   default:
-  break;
+    break;
   }
 
-  #if 0 // delays for debugging purposed; enable at your own peril!
+  #if 0 // delays for raw debugging purposed; enable at your own peril!
   delay(1000); // 1Hz
   #elif 0
   delayMicroseconds(250); // 4KHz

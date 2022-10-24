@@ -21,15 +21,7 @@
 // IMPORTANT: make sure to set the is_outbound_data_ready flag to 'true' everytime the control
 // interruption is run; we do not send the tx buffer regardless, lest we flood the network
 // unnecesaryly.
-//
-//
 
-
-/**
- * @brief This global variable is meant to save the current state.
- */
-State current_state = State::DISCONNECTED;
-bool is_outbound_data_ready = false;
 
 
 constexpr float PERIOD_USEC = 1000;
@@ -97,7 +89,8 @@ uint8_t validate()
         {
             torso_failed_motors_mask |= (1 << i);
             Debug("Not able to turn on ");
-            Serial.println(motors[i]->name());
+            Debugln(motors[i]->name());
+            Debugln();
         }
     }
 
@@ -107,7 +100,17 @@ uint8_t validate()
     //Return transition result
     StateMachineError validation_result = StateMachineError::TRANSITION_OK;
     if(torso_failed_motors_mask != 0 or mecanum_status != ErrorMecanum4WD::ERROR_OK){
+        Debug("Resultados inicialización torso: ");
+        DebugPln(torso_failed_motors_mask,BIN);
+        Debugln();
+        Debug("Resultados inicialización mecanum4wd: ");
+        DebugPln(mecanum_status,BIN);
+        Debugln();
+        Debugln("\n\nERROR IN VALIDATION.\n\n");
         validation_result = StateMachineError::TRANSITION_ERROR;
+    }
+    else{
+        Debugln("\n\nSUCCESSFUL VALIDATION.\n\n");
     }
     return (uint8_t)validation_result;
 }
@@ -142,14 +145,24 @@ uint8_t calibrate()
     }
 
     //-----Mecanum4WD
-    //Send velocity zero to mecanum4WD robot.  
+    //Stop mecanum4WD robot.  
     ErrorMecanum4WD is_mecanum4WD_stopped = mecanum4WD_stopRobotBlocking(2000);
 
 
     //Return transition result
     StateMachineError calibration_result = StateMachineError::TRANSITION_OK;
     if(torso_failed_motors_mask != 0 or is_mecanum4WD_stopped != ErrorMecanum4WD::ERROR_OK){
+        Debug("Resultados calibracion torso: ");
+        DebugPln(torso_failed_motors_mask,BIN);
+        Debugln();
+        Debug("Resultados calibracion mecanum4wd: ");
+        DebugPln(is_mecanum4WD_stopped,BIN);
+        Debugln();
+        Debugln("\n\nERROR IN CALIBRATION.\n\n");
         calibration_result = StateMachineError::TRANSITION_ERROR;
+    }
+    else {
+        Debugln("\n\nSUCCESSFUL CALIBRATION.\n\n");
     }
     return (uint8_t)calibration_result;
 }
@@ -181,7 +194,6 @@ uint8_t gotohome()
     //Setpoints set to home (0.0f)
     mecanum4WD_velocity_setpoint.setVelocities(0.0, 0.0, 0.0);
     //Enable mecanum4WD motors auto mode.
-    mecanum4WD_velocity_setpoint.setVelocities(0.0, 0.0, 0.0);
     mecanum4WD_enableMotorsAutoMode();
 
     //-----Torso and Mecanum4WD
@@ -333,4 +345,89 @@ void updateOutgoingData()
     /* code here to consume data, i.e. put outgoing data in the tx buffer*/
     is_outbound_data_ready = false; // clear the flag; set it in the interrupt callback
     return;
+}
+
+
+/**
+ * @brief If USE_COOPERATIVE_MULTITASKING build flag is set, this function called by
+ * the state machine periodically, at the 1/CTRL_LOOP_PERIOD_US microseconds rate.
+ * 
+ * @return uint8_t 
+ */
+uint8_t my_control_law()
+{
+    //is_outbound_data_ready = true; // clear the flag; set it in the interrupt callback
+    return (uint8_t)StateMachineError::TRANSITION_OK;
+}
+
+
+uint8_t bail()
+{
+    switch(current_state)
+    {
+        
+    case State::DISCONNECTED:
+        /* do something from DISCONNECTED->DISCONNECTED???, but you're already there!*/
+        break;
+
+    case State::CONNECTED:
+        break;
+
+    case State::VALIDATED:
+    case State::CALIBRATED:
+        //-----Torso
+        Debug("\nDisabling Motor");
+        for (uint8_t i = 0; i < NUM_MOTORS; i++)
+        {
+            if (motors[i]->turnOff())
+            {
+                Serial.print("Turned off ");
+                Serial.println(motors[i]->name());
+            }
+            else
+            {
+                Debug("Failed turning off ");
+                Debugln(motors[i]->name());
+            }
+        }
+        //-----Mecanum4WD
+        mecanum4WD_turnOff();
+        break;
+
+    case State::HOME:
+        disconnect();
+        break;
+
+    case State::ENGAGED:
+        disconnect();
+        break;
+
+    case State::DISENGAGED:
+        disconnect();
+        break;
+
+    case State::POWEREDOFF:
+        /* what the heck! this doesn't make any sense POWEREDOFF->DISCONNECTED; check your logic *genious*. */
+        break;
+    default:
+        /* */
+        break;
+    }
+    return (uint8_t)StateMachineError::TRANSITION_OK;
+}
+
+
+uint8_t stress()
+{
+    #if defined(ENABLE_STRESST)
+    return (uint8_t)StateMachineError::TRANSITION_OK;
+    #else
+    return (uint8_t)StateMachineError::TRANSITION_FAIL;
+    #endif
+}
+
+uint8_t do_something()
+{
+    is_outbound_data_ready = true; // clear the flag; set it in the interrupt callback
+    return (uint8_t)StateMachineError::TRANSITION_OK;
 }

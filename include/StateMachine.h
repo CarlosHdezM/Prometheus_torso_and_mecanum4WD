@@ -4,14 +4,15 @@
 
     enum class State
     {
+        POWEREDOFF,
+        STRESSTING,
         DISCONNECTED,
         CONNECTED,
         VALIDATED,
         CALIBRATED,
         HOME,
         ENGAGED,
-        DISENGAGED,
-        POWEREDOFF
+        DISENGAGED
     };
 
     /**
@@ -21,8 +22,10 @@
     enum class StateMachineError
     {
         TRANSITION_OK = 0,
-        TRANSITION_DONE,
+        TRANSITION_DONEALREADY,
         TRANSITION_INVALID,
+        TRANSITION_FAIL,
+        CURRENTSTATE_INVALID,
         TRANSITION_ERROR = 0xFF
     };
 
@@ -35,52 +38,23 @@
     extern uint8_t  engage();
     extern uint8_t  disengage();
     extern uint8_t  disconnect();
+    extern uint8_t  bail();
+    extern uint8_t  stress();
     extern uint8_t  poweroff();
 
     extern    void  updateIncomingData();
     extern    void  updateOutgoingData();
     extern    bool  is_outbound_data_ready;
 
+    #define CTRL_LOOP_PERIOD_US 1000 // period in microseconds [us]
+    extern uint8_t  my_control_law();
+    #define DOSOMETHING_PERIOD_US 250 // period in microseconds [us]
+    extern uint8_t  do_something();
 
-    //Messaging objects
-    #ifdef AVTR_NECK
-    extern P2pSocket<headsetOptrPayload,     neckAvtrPayload>        p2pComm; // marteaga: you MUST tell the linker that these types are allowed to be instantiated in the class
-    #elif OPTR_LEFT_EXO
-    extern P2pSocket<armAvtrPayload,         exoOptrPayload>         p2pComm; // exo MCU
-    #elif AVTR_LEFT_ARM
-    extern P2pSocket<exoOptrPayload,         armAvtrPayload>         p2pComm; // arm MCU
-    #elif OPTR_RIGHT_EXO
-    extern P2pSocket<armAvtrPayload,         exoOptrPayload>         p2pComm;
-    #elif AVTR_RIGHT_ARM
-    extern P2pSocket<exoOptrPayload,         armAvtrPayload>         p2pComm;
-    #elif OPTR_LEFT_3DOF_GLOVE
-    extern P2pSocket<hand3DofAvtrPayload,    glove3DofOptrPayload>   p2pComm;
-    #elif AVTR_LEFT_HAND
-    extern P2pSocket<glove3DofOptrPayload,   hand3DofAvtrPayload>    p2pComm;
-    #elif OPTR_RIGHT_R5F_GLOVE
-    extern P2pSocket<hand5fAvtrPayload,      glove5fOptrPayload>     p2pComm;
-    #elif AVTR_RIGHT_HAND
-    extern P2pSocket<glove5fOptrPayload,     hand5fAvtrPayload>      p2pComm;
-    #elif OPTR_TOUCH_SENSE
-    extern P2pSocket<touchSenseAvtrPayload,  touchSenseOptrPayload>  p2pComm;
-    #elif AVTR_TOUCH_SENSE
-    extern P2pSocket<touchSenseOptrPayload,  touchSenseAvtrPayload>  p2pComm;
-    #elif OPTR_PEDALIMU
-    extern P2pSocket<txOmniwheelsPayload,    rxOmniwheelsPayload>    p2pComm;
-    #elif AVTR_OMNIWHEELS
-    extern P2pSocket<rxOmniwheelsPayload,    txOmniwheelsPayload>    p2pComm;
-    #elif AVTR_OMNIWHEELS_BKUP
-    extern P2pSocket<rxOmniwheelsPayload,    txOmniwheelsPayload>    p2pComm;
-    #elif OPTR_TEST
-    extern P2pSocket<testAvtrPayload,        testOptrPayload>        p2pComm;
-    #elif AVTR_TEST
-    extern P2pSocket<testOptrPayload,        testAvtrPayload>        p2pComm;
-    #elif ASIDE_PAUL_TEST
-    extern P2pSocket<testAvtrPayload,        testOptrPayload>        p2pComm;
-    #elif BSIDE_PAUL_TEST
-    extern P2pSocket<testAvtrPayload,        testOptrPayload>        p2pComm;
-    #else
-    extern P2pSocket<testAvtrPayload,        testOptrPayload>        p2pComm;
+    //Messaging object declaration
+    #if defined(AVATAR_SIDE) && !defined(OPERATOR_SIDE)
+    extern P2pSocket<optrPayload,avtrPayload> p2pComm;
+    #elif defined(OPERATOR_SIDE) && !defined(AVATAR_SIDE)
+    extern P2pSocket<avtrPayload,optrPayload> p2pComm;
     #endif
-
 #endif
