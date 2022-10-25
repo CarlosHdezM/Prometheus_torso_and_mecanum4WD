@@ -31,11 +31,11 @@ int counter = 0;
 float theta[3] = {0.0, 0.0, 0.0};
 float Dq[3] = {0.0, 0.0, 0.0};
 float Tau[3] = {0.0, 0.0, 0.0};
-float Kp[3] = {1.0, 1.0, 1.0};
-float Kd[3] = {1.0, 1.0, 1.0};
+float Kp[3] = {3.0, 15.0, 15.0};
+float Kd[3] = {0.2, 0.3, 0.3};
 float kf[3] = {1.0, 1.0, 1.0};
 float tau[3] = {0.0, 0.0, 0.0};
-float sat[3] = {1.0, 1.0, 1.0};
+float sat[3] = {1.0, 3.0, 3.0};
 float qd[3] = {0.0, 0.0, 0.0};
 float bias_x = 0.0;
 float bias_y = 0.0;
@@ -92,7 +92,8 @@ void controlMotors(float elapsed_time_seconds)
     for (uint8_t i = 0; i < NUM_MOTORS; i++)
     {
         // tau[i] = -Kp[i] * (motors[i]->position() - qd[i]) - Kd[i] * Dq[i] - kf[i] * Sign(motors[i]->position() - qd[i]) * pow(fabs(motors[i]->position() - qd[i]), 0.5);
-        tau[i] = -Kp[i] * (motors[i]->position() - qd[i]);
+        //tau[i] = -Kp[i] * (motors[i]->position() - qd[i]);
+        tau[i] = -Kp[i] * (motors[i]->position() - qd[i]) - Kd[i] * Dq[i];
     }
 
     for (uint8_t i = 0; i < NUM_MOTORS; i++)

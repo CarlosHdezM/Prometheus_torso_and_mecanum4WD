@@ -27,7 +27,7 @@ const MitMotor::MotorType AK_10_REVERSED{-18.0f, 18.0f, 1.0f, -1.0f};
 CanMotor * wheel_motors[] = {
     new MitMotor(MitMotor::AK_10, CS_3, INT_3, "Wheel 0"),
     new MitMotor(AK_10_REVERSED, CS_4, INT_4, "Wheel 1"),
-    new MitMotor(MitMotor::AK_10, CS_5, INT_5, "Wheel 2"),
+    new MitMotor(AK_10_REVERSED, CS_5, INT_5, "Wheel 2"),
     new MitMotor(AK_10_REVERSED, CS_6, INT_6, "Wheel 3"),
 };
 
@@ -59,7 +59,11 @@ void SimpleCmdVel::setVelocities(float _linear_x, float _linear_y, float _angula
         linear_x = constrain(_linear_x,   -LIMIT_VELOCITY_SETPOINT_LINEAR_X,  LIMIT_VELOCITY_SETPOINT_LINEAR_X);
         linear_y = constrain(_linear_y,   -LIMIT_VELOCITY_SETPOINT_LINEAR_Y,  LIMIT_VELOCITY_SETPOINT_LINEAR_Y);
         angular_z = constrain(_angular_z, -LIMIT_VELOCITY_SETPOINT_ANGULAR_Z, LIMIT_VELOCITY_SETPOINT_ANGULAR_Z);
+        // linear_x = _linear_x;
+        // linear_y = _linear_y;
+        // angular_z = _angular_z;
 }
+
 
 
 //Operator overloads to be able to set bits in ErrorMecanum4WD enums.
@@ -224,9 +228,12 @@ void mecanum4WD_disableMotorsAutoMode()
 void mecanum4WD_updateVelControl(float elapsed_time_seconds)
 {
     //digitalWrite(AUX_PIN_1,!digitalRead(AUX_PIN_1));  //Toggle pin to analize periodicity with the logic analyzer.
-    
+
+
+
     //Constrain mecanum4wd velocity setpoints to reasonable limits. (Built-in constrain() function doesn't work since the setpoint is std::atomic<float>)
     //Most likely redudant, but since SimpleCmdVel members can be assigned directly, we must be sure the setpoints are within the limits. 
+
     if (mecanum4WD_velocity_setpoint.linear_x > LIMIT_VELOCITY_SETPOINT_LINEAR_X) mecanum4WD_velocity_setpoint.linear_x = LIMIT_VELOCITY_SETPOINT_LINEAR_X;
     else if (mecanum4WD_velocity_setpoint.linear_x < -LIMIT_VELOCITY_SETPOINT_LINEAR_X) mecanum4WD_velocity_setpoint.linear_x = -LIMIT_VELOCITY_SETPOINT_LINEAR_X;
 
@@ -235,6 +242,8 @@ void mecanum4WD_updateVelControl(float elapsed_time_seconds)
 
     if (mecanum4WD_velocity_setpoint.angular_z > LIMIT_VELOCITY_SETPOINT_ANGULAR_Z) mecanum4WD_velocity_setpoint.angular_z = LIMIT_VELOCITY_SETPOINT_ANGULAR_Z;
     else if (mecanum4WD_velocity_setpoint.angular_z < -LIMIT_VELOCITY_SETPOINT_ANGULAR_Z) mecanum4WD_velocity_setpoint.angular_z = -LIMIT_VELOCITY_SETPOINT_ANGULAR_Z;
+
+
 
 
     //Kinematic Model (Compute the desired individual wheels angular velocity from the mecanum4wd desired velocity)

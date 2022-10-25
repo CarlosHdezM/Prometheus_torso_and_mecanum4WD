@@ -92,6 +92,12 @@ uint8_t validate()
             Debugln(motors[i]->name());
             Debugln();
         }
+        Serial.print("\tPosition: ");
+        Serial.print(motors[i]->position(), 4);
+        Serial.print("\tTorque: ");
+        Serial.print(motors[i]->torque(), 4);
+        Serial.print("\tVelocity: ");
+        Serial.println(motors[i]->velocity(), 4);
     }
 
     //-----Mecanum4WD
@@ -131,12 +137,12 @@ uint8_t calibrate()
     for (uint8_t i = 0; i < NUM_MOTORS; i++)
     {
         Serial.print(motors[i]->name());
-        if (!motors[i]->setCurrentPositionAsZero())
-        {
-            torso_failed_motors_mask |= (1 << i);
-            Serial.println(":\tFailed setting current position as origin");
-        }
-        Serial.print("Position: ");
+        // if (!motors[i]->setCurrentPositionAsZero())
+        // {
+        //     torso_failed_motors_mask |= (1 << i);
+        //     Serial.println(":\tFailed setting current position as origin");
+        // }
+        Serial.print("\tPosition: ");
         Serial.print(motors[i]->position(), 4);
         Serial.print("\tTorque: ");
         Serial.print(motors[i]->torque(), 4);
@@ -185,6 +191,7 @@ uint8_t gotohome()
     //Enable torso motors auto mode. 
     for (uint8_t i = 0; i < NUM_MOTORS; i++)
     {
+        theta[i] = -motors[i]->position();
         Serial.print("Starting auto mode for:");
         Serial.println(motors[i]->name());
         motors[i]->startAutoMode(interrupt_handlers[i]);
@@ -281,6 +288,8 @@ uint8_t disconnect()
     Debug("\nDisabling Motor");
     for (uint8_t i = 0; i < NUM_MOTORS; i++)
     {
+        theta[i] = 0.0f;
+        tau[i] = 0.0f;
         if (motors[i]->turnOff())
         {
             Serial.print("Turned off ");
@@ -330,6 +339,15 @@ void updateIncomingData()
         p2pComm._rxDatagram.payload.Q[3],
         p2pComm._rxDatagram.payload.Q[4] );
 
+    //Debug: Print received data.
+    Serial.print("Beta: "); Serial.print(Beta); Serial.print("\n Gamma: "); Serial.println(Gamma);
+    for (uint8_t i = 0; i < NUM_MOTORS; i++)
+    {
+        Serial.print(tau[i]); Serial.print("\t");
+    }
+    Serial.println();
+    
+    mecanum4WD_debugPrintStatus();
     return;
 }
 
