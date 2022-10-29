@@ -34,9 +34,9 @@ void setup()
   // Open serial communications and wait for port to open.
   #ifdef DEBUG_LOG
     Serial.begin(115200);
-    while (!Serial) {
-      ; // wait for serial port to connect. Needed for native USB port only.
-    }
+    // while (!Serial) {
+    //   ; // wait for serial port to connect. Needed for native USB port only.
+    // }
   #endif
   p2pComm.begin(); // Ethernet start; the cofiguration come from the McuConfig object.
 }

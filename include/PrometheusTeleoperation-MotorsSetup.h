@@ -32,10 +32,10 @@ float theta[3] = {0.0, 0.0, 0.0};
 float Dq[3] = {0.0, 0.0, 0.0};
 float Tau[3] = {0.0, 0.0, 0.0};
 float Kp[3] = {3.0, 15.0, 15.0};
-float Kd[3] = {0.2, 0.3, 0.3};
+float Kd[3] = {1.0, 1.5, 1.5};
 float kf[3] = {1.0, 1.0, 1.0};
 float tau[3] = {0.0, 0.0, 0.0};
-float sat[3] = {1.0, 3.0, 3.0};
+float sat[3] = {4.0, 6.0, 6.0};
 float qd[3] = {0.0, 0.0, 0.0};
 float bias_x = 0.0;
 float bias_y = 0.0;
@@ -99,10 +99,14 @@ void controlMotors(float elapsed_time_seconds)
     for (uint8_t i = 0; i < NUM_MOTORS; i++)
     {
 
-        if (fabs(tau[i] > sat[i]))
+        if (fabs(tau[i]) > sat[i])
         {
             tau[i] = Sign(tau[i]) * sat[i];
         }
+
+        #if defined (DONTACTUATETORSO)
+        tau[i] = 0.0f;
+        #endif
 
         if (!motors[i]->setTorque(tau[i]))
         {

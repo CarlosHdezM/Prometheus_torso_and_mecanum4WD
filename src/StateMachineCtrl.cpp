@@ -50,6 +50,7 @@ uint8_t connect()
 {
     //Torso: No action needed
     //Mecanum4WD: No action needed
+    mecanum4WD_velocity_setpoint.setVelocities(0.0, 0.0, 0.0);
     return (uint8_t)StateMachineError::TRANSITION_OK;
 }
 
@@ -303,6 +304,7 @@ uint8_t disconnect()
     }
 
     //-----Mecanum4WD
+    mecanum4WD_stopRobotBlocking(2000);
     mecanum4WD_turnOff();
 
     return (uint8_t)StateMachineError::TRANSITION_OK;
@@ -330,8 +332,10 @@ uint8_t poweroff()
 void updateIncomingData()
 {
     //Torso
+    #if !defined (TORSO_REGULATION_TO_ZERO)
     Beta = p2pComm._rxDatagram.payload.Q[0];
     Gamma = p2pComm._rxDatagram.payload.Q[1];
+    #endif
 
     //Mecanum4WD
     mecanum4WD_velocity_setpoint.setVelocities(

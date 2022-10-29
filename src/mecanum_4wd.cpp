@@ -9,9 +9,9 @@
 #define ly 0.225f   //225 mm
 
 //Limits (Limit the max or min speed)
-#define LIMIT_VELOCITY_SETPOINT_LINEAR_X 2.0f
-#define LIMIT_VELOCITY_SETPOINT_LINEAR_Y 2.0f
-#define LIMIT_VELOCITY_SETPOINT_ANGULAR_Z 2.0f
+#define LIMIT_VELOCITY_SETPOINT_LINEAR_X 0.5f
+#define LIMIT_VELOCITY_SETPOINT_LINEAR_Y 0.5f
+#define LIMIT_VELOCITY_SETPOINT_ANGULAR_Z 0.5f
 
 
 float wheels_angular_velocity_setpoint[NUM_WHEELS]{0.0, 0.0, 0.0, 0.0};
@@ -273,6 +273,8 @@ void mecanum4WD_updateVelControl(float elapsed_time_seconds)
         //Option B: closed-loop controller
         //error[i] =  wheels_angular_velocity_setpoint[i] - wheel_i_velocity;
 
+        //Option C: open-loop controller
+        //error[i] =  wheels_angular_velocity_setpoint[i] - wheels_angular_velocity_output[i];
 
         error_sum[i] += error[i] * elapsed_time_seconds;
         wheels_angular_velocity_output[i] = (error_sum[i] * KI);
@@ -282,6 +284,10 @@ void mecanum4WD_updateVelControl(float elapsed_time_seconds)
 
         //Perform Inverse Kinematics
         mecanum4WD_updateInverseKinematics();
+
+        #if defined (DONTACTUATEMECANUM)
+        wheels_angular_velocity_output[i] = 0.0f;
+        #endif
 
         if (!wheel_motors[i]->setVelocity(wheels_angular_velocity_output[i], 5.0))
         {
