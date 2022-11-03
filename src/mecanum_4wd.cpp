@@ -9,9 +9,9 @@
 #define ly 0.225f   //225 mm
 
 //Limits (Limit the max or min speed)
-#define LIMIT_VELOCITY_SETPOINT_LINEAR_X 0.5f
-#define LIMIT_VELOCITY_SETPOINT_LINEAR_Y 0.5f
-#define LIMIT_VELOCITY_SETPOINT_ANGULAR_Z 0.5f
+#define LIMIT_VELOCITY_SETPOINT_LINEAR_X 2.0f
+#define LIMIT_VELOCITY_SETPOINT_LINEAR_Y 2.0f
+#define LIMIT_VELOCITY_SETPOINT_ANGULAR_Z 2.0f
 
 
 float wheels_angular_velocity_setpoint[NUM_WHEELS]{0.0, 0.0, 0.0, 0.0};
